@@ -8,6 +8,8 @@ from torch.nn import Module
 import numpy as np
 from captum.influence import TracInCPFast
 
+from research.utils import load_state_dict
+
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
 from art.estimators.classification.classifier import ClassifierMixin
@@ -42,15 +44,6 @@ class TracInAttack(MembershipInferenceAttack):
         self._check_params()
         self.influence_model = None
 
-    @staticmethod
-    def load_state_dict(model: Module, path: str) -> int:
-        global_state = torch.load(path, map_location=torch.device('cpu'))
-        if 'best_net' in global_state:
-            global_state = global_state['best_net']
-        model.load_state_dict(global_state)
-        model.to('cpu')
-        return 1
-
     def fit(self,
             x_member: np.ndarray,
             y_member: np.ndarray,
@@ -73,7 +66,7 @@ class TracInAttack(MembershipInferenceAttack):
             model=self.estimator.model,
             final_fc_layer=self.estimator.model.linear,
             influence_src_dataset=member_src_set,
-            checkpoints_load_func=self.load_state_dict,
+            checkpoints_load_func=load_state_dict,
             checkpoints=[checkpoint_path],
             loss_fn=nn.CrossEntropyLoss(reduction="sum"),
             batch_size=self.batch_size,
