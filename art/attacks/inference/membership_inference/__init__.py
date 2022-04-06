@@ -8,3 +8,4 @@ from art.attacks.inference.membership_inference.label_only_boundary_distance imp
 from art.attacks.inference.membership_inference.shadow_models import ShadowModels
 from art.attacks.inference.membership_inference.tracin_attack import TracInAttack
 from art.attacks.inference.membership_inference.self_influence_function_attack import SelfInfluenceFunctionAttack
+from art.attacks.inference.membership_inference.influence_function_diff_attack import InfluenceFunctionDiff
