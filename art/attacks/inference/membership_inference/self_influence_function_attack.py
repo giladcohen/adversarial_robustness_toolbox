@@ -6,6 +6,8 @@ import torch.nn as nn
 from torch.nn import Module
 
 import numpy as np
+import os
+import time
 from captum.influence import TracInCPFast
 
 from research.utils import load_state_dict
@@ -29,13 +31,14 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     ]
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
-    def __init__(self, estimator: "CLASSIFIER_TYPE",
+    def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: Optional[str] = None,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
         self.influence_score_max = influence_score_max
         self.device = 'cuda'
         self.batch_size = 100
+        self.debug_dir = debug_dir
         self._check_params()
 
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
@@ -44,10 +47,17 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         if y_member.shape[0] != y_non_member.shape[0]:
             raise ValueError("Number of members' labels and non members' labels do not match")
 
+        start = time.time()
         logger.info('Generating self influence scores for members (train)...')
         self_influences_member = calc_self_influence(x_member, y_member, self.estimator.model)
-        # logger.info('Generating self influence scores for non members (train)...')
-        # self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
+        end = time.time()
+        logger.info('self influence scores calculation time is: {} sec'.format(end - start))
+
+        logger.info('Generating self influence scores for non members (train)...')
+        self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
+        if self.debug_dir is not None:
+            np.save(os.path.join(self.debug_dir, 'self_influences_member.npy'), self_influences_member)
+            np.save(os.path.join(self.debug_dir, 'self_influences_non_member.npy'), self_influences_non_member)
 
         minn = self_influences_member.min()
         maxx = self_influences_member.max()
