@@ -9,6 +9,7 @@ import numpy as np
 from captum.influence import TracInCPFast
 
 from research.utils import load_state_dict
+from pytorch_influence_functions import calc_self_influence
 
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
@@ -37,24 +38,34 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.batch_size = 100
         self._check_params()
 
-    def fit(self, self_influences_member_train, self_influences_non_member_train):
-        if self_influences_member_train.shape[0] != self_influences_non_member_train.shape[0]:  # pragma: no cover
-            raise ValueError("Number of rows in self_influences_member_train and self_influences_non_member_train do not match")
+    def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
+        if x_member.shape[0] != x_non_member.shape[0]:
+            raise ValueError("Number of members and non members do not match")
+        if y_member.shape[0] != y_non_member.shape[0]:
+            raise ValueError("Number of members' labels and non members' labels do not match")
 
-        minn = self_influences_member_train.min()
-        maxx = self_influences_member_train.max()
+        logger.info('Generating self influence scores for members (train)...')
+        self_influences_member = calc_self_influence(x_member, y_member, self.estimator.model)
+        # logger.info('Generating self influence scores for non members (train)...')
+        # self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
+
+        minn = self_influences_member.min()
+        maxx = self_influences_member.max()
         delta = maxx - minn
         if self.influence_score_min is None:
             self.influence_score_min = minn - delta * 0.03
         if self.influence_score_max is None:
             self.influence_score_max = maxx + delta * 0.03
 
+        logger.info('Done fitting {}'.format(__class__))
+
     def infer(self, x: np.ndarray, y: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
         if y is None:  # pragma: no cover
             raise ValueError("Argument `y` is None, but this attack requires true labels `y` to be provided.")
+        assert y.shape[0] == x.shape[0], 'Number of rows in x and y do not match'
 
-        self_influences = kwargs.pop('self_influences', None)
-        assert y.shape[0] == x.shape[0] == self_influences.shape[0], "Number of rows in x and y do not match"
+        logger.info('Generating self influence scores for members (infer)...')
+        scores = calc_self_influence(x, y, self.estimator.model)
 
         if self.influence_score_min is None or self.influence_score_max is None:  # pragma: no cover
             raise ValueError(
@@ -63,7 +74,6 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             )
 
         y_pred = self.estimator.predict(x, self.batch_size).argmax(axis=1)
-        scores = self_influences
         predicted_class = np.ones(x.shape[0])  # member by default
         for i in range(x.shape[0]):
             if scores[i] < self.influence_score_min or scores[i] > self.influence_score_max:
