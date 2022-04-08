@@ -25,6 +25,7 @@ import logging
 from typing import Optional, TYPE_CHECKING
 
 import numpy as np
+import time
 
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
@@ -163,6 +164,8 @@ class LabelOnlyDecisionBoundary(MembershipInferenceAttack):
         if "targeted" in kwargs:  # pragma: no cover
             raise ValueError("Keyword `targeted` in kwargs is not supported.")
 
+        start = time.time()
+        logger.info('Calibrating boundary distance threshold...')
         y_train = check_and_transform_label_format(y_train, self.estimator.nb_classes)
         y_test = check_and_transform_label_format(y_test, self.estimator.nb_classes)
 
@@ -201,6 +204,8 @@ class LabelOnlyDecisionBoundary(MembershipInferenceAttack):
                 acc_max = acc
 
         self.distance_threshold_tau = distance_threshold_tau
+        end = time.time()
+        logger.info('Boundary distance threshold calculation time is: {} sec'.format(end - start))
 
     def calibrate_distance_threshold_unsupervised(
         self, top_t: int = 50, num_samples: int = 100, max_queries: int = 1, **kwargs

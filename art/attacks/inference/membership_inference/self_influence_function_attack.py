@@ -10,7 +10,7 @@ import os
 import time
 from captum.influence import TracInCPFast
 
-from research.utils import load_state_dict
+from research.utils import load_state_dict, save_to_path
 from pytorch_influence_functions import calc_self_influence
 
 from art.attacks.attack import MembershipInferenceAttack
@@ -31,7 +31,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     ]
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
-    def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: Optional[str] = None,
+    def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
@@ -39,6 +39,10 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.device = 'cuda'
         self.batch_size = 100
         self.debug_dir = debug_dir
+        self.self_influences_member_train_path = os.path.join(self.debug_dir, 'self_influences_member_train.npy')
+        self.self_influences_non_member_train_path = os.path.join(self.debug_dir, 'self_influences_non_member_train.npy')
+        self.self_influences_member_test_path = os.path.join(self.debug_dir, 'self_influences_member_test.npy')
+        self.self_influences_non_member_test_path = os.path.join(self.debug_dir, 'self_influences_non_member_test.npy')
         self._check_params()
 
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
@@ -48,16 +52,21 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             raise ValueError("Number of members' labels and non members' labels do not match")
 
         start = time.time()
-        logger.info('Generating self influence scores for members (train)...')
-        self_influences_member = calc_self_influence(x_member, y_member, self.estimator.model)
-        end = time.time()
-        logger.info('self influence scores calculation time is: {} sec'.format(end - start))
+        if os.path.exists(self.self_influences_member_train_path):
+            logger.info('Loading self influence scores for members (train)...')
+            self_influences_member = np.load(self.self_influences_member_train_path)
+        else:
+            logger.info('Generating self influence scores for members (train)...')
+            self_influences_member = calc_self_influence(x_member, y_member, self.estimator.model)
+            np.save(self.self_influences_member_train_path, self_influences_member)
 
-        logger.info('Generating self influence scores for non members (train)...')
-        self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
-        if self.debug_dir is not None:
-            np.save(os.path.join(self.debug_dir, 'self_influences_member.npy'), self_influences_member)
-            np.save(os.path.join(self.debug_dir, 'self_influences_non_member.npy'), self_influences_non_member)
+        if os.path.exists(self.self_influences_non_member_train_path):
+            logger.info('Loading self influence scores for non members (train)...')
+            self_influences_non_member = np.load(self.self_influences_non_member_train_path)
+        else:
+            logger.info('Generating self influence scores for non members (train)...')
+            self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
+            np.save(self.self_influences_non_member_train_path, self_influences_non_member)
 
         minn = self_influences_member.min()
         maxx = self_influences_member.max()
@@ -67,6 +76,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         if self.influence_score_max is None:
             self.influence_score_max = maxx + delta * 0.03
 
+        end = time.time()
+        logger.info('Fitting self influence scores calculation time is: {} sec'.format(end - start))
         logger.info('Done fitting {}'.format(__class__))
 
     def infer(self, x: np.ndarray, y: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
@@ -74,14 +85,28 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             raise ValueError("Argument `y` is None, but this attack requires true labels `y` to be provided.")
         assert y.shape[0] == x.shape[0], 'Number of rows in x and y do not match'
 
-        logger.info('Generating self influence scores for members (infer)...')
-        scores = calc_self_influence(x, y, self.estimator.model)
-
         if self.influence_score_min is None or self.influence_score_max is None:  # pragma: no cover
             raise ValueError(
                 "No value for threshold `influence_score_min` or 'influence_score_max' provided. Please set them"
                 "or run method `fit` on known training set."
             )
+
+        infer_set = kwargs.get('infer_set', None)
+        assert infer_set is not None, "infer() must be called with kwargs with 'infer_set'"
+        if infer_set == 'member_test':
+            infer_path = self.self_influences_member_test_path
+        elif infer_set == 'non_member_test':
+            infer_path = self.self_influences_non_member_test_path
+        else:
+            raise AssertionError('Invalid value infer_set = {}'.format(infer_set))
+
+        if os.path.exists(infer_path):
+            logger.info('Loading self influence scores from {} (infer)...'.format(infer_path))
+            scores = np.load(infer_path)
+        else:
+            logger.info('Generating self influence scores to {} (infer)...'.format(infer_path))
+            scores = calc_self_influence(x, y, self.estimator.model)
+            np.save(infer_path, scores)
 
         y_pred = self.estimator.predict(x, self.batch_size).argmax(axis=1)
         predicted_class = np.ones(x.shape[0])  # member by default
