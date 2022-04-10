@@ -79,7 +79,7 @@ class MembershipInferenceBlackBoxRuleBased(MembershipInferenceAttack):
         else:
             probabilities = False
 
-        y = check_and_transform_label_format(y, len(np.unique(y)), return_one_hot=True)
+        y = check_and_transform_label_format(y, self.estimator.nb_classes, return_one_hot=True)
         if y.shape[0] != x.shape[0]:  # pragma: no cover
             raise ValueError("Number of rows in x and y do not match")
 
