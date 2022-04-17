@@ -8,6 +8,7 @@ from torch.nn import Module
 import numpy as np
 import os
 import time
+from tqdm import tqdm
 from captum.influence import TracInCPFast
 
 from research.utils import load_state_dict, save_to_path
@@ -38,6 +39,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.influence_score_max = influence_score_max
         self.device = 'cuda'
         self.batch_size = 100
+        self.num_fit_iters = 20
+        self.threshold_bins: list = []
         self.debug_dir = debug_dir
         self.self_influences_member_train_path = os.path.join(self.debug_dir, 'self_influences_member_train.npy')
         self.self_influences_non_member_train_path = os.path.join(self.debug_dir, 'self_influences_non_member_train.npy')
@@ -68,13 +71,34 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
             np.save(self.self_influences_non_member_train_path, self_influences_non_member)
 
+        logger.info('Fitting min and max thresholds...')
         minn = self_influences_member.min()
         maxx = self_influences_member.max()
         delta = maxx - minn
-        if self.influence_score_min is None:
-            self.influence_score_min = minn - delta * 0.03
-        if self.influence_score_max is None:
-            self.influence_score_max = maxx + delta * 0.03
+        # setting array of min/max thresholds
+        minn_arr = np.linspace(minn - delta * 0.5, minn + delta * 0.5, 500)
+        maxx_arr = np.linspace(maxx - delta * 0.5, maxx + delta * 0.5, 500)
+
+        acc_max = 0.0
+        best_min = -np.inf
+        best_max = np.inf
+        self.threshold_bins = []
+        for i in tqdm(range(len(minn_arr))):
+            for j in range(len(maxx_arr)):
+                inferred_member = np.where(
+                    np.logical_and(self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j]), 1, 0)
+                inferred_non_member = np.where(
+                    np.logical_and(self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j]), 1, 0)
+                member_acc = np.mean(inferred_member == 1)
+                non_member_acc = np.mean(inferred_non_member == 0)
+                acc = (member_acc * len(inferred_member) + non_member_acc * len(inferred_non_member)) / (len(inferred_member) + len(inferred_non_member))
+                self.threshold_bins.append((minn_arr[i], maxx_arr[j], acc))
+                if acc > acc_max:
+                    best_min, best_max = minn_arr[i], maxx_arr[j]
+                    acc_max = acc
+
+        self.influence_score_min = best_min
+        self.influence_score_max = best_max
 
         end = time.time()
         logger.info('Fitting self influence scores calculation time is: {} sec'.format(end - start))
