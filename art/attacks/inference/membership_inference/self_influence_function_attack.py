@@ -76,8 +76,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         maxx = self_influences_member.max()
         delta = maxx - minn
         # setting array of min/max thresholds
-        minn_arr = np.linspace(minn - delta * 0.5, minn + delta * 0.5, 500)
-        maxx_arr = np.linspace(maxx - delta * 0.5, maxx + delta * 0.5, 500)
+        minn_arr = np.linspace(minn - delta * 0.5, minn + delta * 0.5, 1000)
+        maxx_arr = np.linspace(maxx - delta * 0.5, maxx + delta * 0.5, 1000)
 
         acc_max = 0.0
         best_min = -np.inf
