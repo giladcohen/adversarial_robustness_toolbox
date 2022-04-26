@@ -32,12 +32,13 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     ]
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
-    def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str,
+    def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
         self.influence_score_max = influence_score_max
         self.device = 'cuda'
+        self.miscls_as_nm = miscls_as_nm
         self.batch_size = 100
         self.num_fit_iters = 20
         self.threshold_bins: list = []
@@ -71,6 +72,13 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
             np.save(self.self_influences_non_member_train_path, self_influences_non_member)
 
+        y_pred_member = self.estimator.predict(x_member, self.batch_size).argmax(axis=1)
+        y_pred_non_member = self.estimator.predict(x_non_member, self.batch_size).argmax(axis=1)
+        # pred_member_mismatch = y_pred_member != y_member
+        # pred_non_member_mismatch = y_pred_non_member != y_non_member
+        pred_member_match = y_pred_member == y_member
+        pred_non_member_match = y_pred_non_member == y_non_member
+
         logger.info('Fitting min and max thresholds...')
         minn = self_influences_member.min()
         maxx = self_influences_member.max()
@@ -85,10 +93,20 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.threshold_bins = []
         for i in tqdm(range(len(minn_arr))):
             for j in range(len(maxx_arr)):
-                inferred_member = np.where(
-                    np.logical_and(self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j]), 1, 0)
-                inferred_non_member = np.where(
-                    np.logical_and(self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j]), 1, 0)
+                if self.miscls_as_nm:
+                    inferred_member = np.int_(
+                        np.logical_and.reduce([self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j], pred_member_match])
+                    )
+                    inferred_non_member = np.int_(
+                        np.logical_and.reduce([self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j], pred_non_member_match])
+                    )
+                else:
+                    inferred_member = np.int_(
+                        np.logical_and.reduce([self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j]])
+                    )
+                    inferred_non_member = np.int_(
+                        np.logical_and.reduce([self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j]])
+                    )
                 member_acc = np.mean(inferred_member == 1)
                 non_member_acc = np.mean(inferred_non_member == 0)
                 acc = (member_acc * len(inferred_member) + non_member_acc * len(inferred_non_member)) / (len(inferred_member) + len(inferred_non_member))
@@ -137,7 +155,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         for i in range(x.shape[0]):
             if scores[i] < self.influence_score_min or scores[i] > self.influence_score_max:
                 predicted_class[i] = 0
-            if y_pred[i] != y[i]:
+            if y_pred[i] != y[i] and self.miscls_as_nm:
                 predicted_class[i] = 0
 
         return predicted_class
