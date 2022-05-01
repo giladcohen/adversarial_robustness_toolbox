@@ -12,7 +12,7 @@ from tqdm import tqdm
 from captum.influence import TracInCPFast
 
 from research.utils import load_state_dict, save_to_path
-from pytorch_influence_functions import calc_self_influence
+from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive
 
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
@@ -32,13 +32,14 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     ]
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
-    def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True,
+    def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True, adaptive: bool = False,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
         self.influence_score_max = influence_score_max
         self.device = 'cuda'
         self.miscls_as_nm = miscls_as_nm
+        self.adaptive = adaptive
         self.batch_size = 100
         self.num_fit_iters = 20
         self.threshold_bins: list = []
@@ -48,6 +49,12 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.self_influences_member_test_path = os.path.join(self.debug_dir, 'self_influences_member_test.npy')
         self.self_influences_non_member_test_path = os.path.join(self.debug_dir, 'self_influences_non_member_test.npy')
         self._check_params()
+
+        if self.adaptive:
+            self.self_influence_func = calc_self_influence
+        else:
+            self.self_influence_func = calc_self_influence_adaptive
+
 
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
         if x_member.shape[0] != x_non_member.shape[0]:
@@ -61,7 +68,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             self_influences_member = np.load(self.self_influences_member_train_path)
         else:
             logger.info('Generating self influence scores for members (train)...')
-            self_influences_member = calc_self_influence(x_member, y_member, self.estimator.model)
+            self_influences_member = self.self_influence_func(x_member, y_member, self.estimator.model)
             np.save(self.self_influences_member_train_path, self_influences_member)
 
         if os.path.exists(self.self_influences_non_member_train_path):
@@ -69,7 +76,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             self_influences_non_member = np.load(self.self_influences_non_member_train_path)
         else:
             logger.info('Generating self influence scores for non members (train)...')
-            self_influences_non_member = calc_self_influence(x_non_member, y_non_member, self.estimator.model)
+            self_influences_non_member = self.self_influence_func(x_non_member, y_non_member, self.estimator.model)
             np.save(self.self_influences_non_member_train_path, self_influences_non_member)
 
         y_pred_member = self.estimator.predict(x_member, self.batch_size).argmax(axis=1)
@@ -147,7 +154,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             scores = np.load(infer_path)
         else:
             logger.info('Generating self influence scores to {} (infer)...'.format(infer_path))
-            scores = calc_self_influence(x, y, self.estimator.model)
+            scores = self.self_influence_func(x, y, self.estimator.model)
             np.save(infer_path, scores)
 
         y_pred = self.estimator.predict(x, self.batch_size).argmax(axis=1)
