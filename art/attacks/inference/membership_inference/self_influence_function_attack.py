@@ -51,9 +51,9 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self._check_params()
 
         if self.adaptive:
-            self.self_influence_func = calc_self_influence
-        else:
             self.self_influence_func = calc_self_influence_adaptive
+        else:
+            self.self_influence_func = calc_self_influence
 
 
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
