@@ -55,7 +55,6 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         else:
             self.self_influence_func = calc_self_influence
 
-
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
         if x_member.shape[0] != x_non_member.shape[0]:
             raise ValueError("Number of members and non members do not match")
