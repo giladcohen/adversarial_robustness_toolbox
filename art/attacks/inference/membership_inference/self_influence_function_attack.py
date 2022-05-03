@@ -33,6 +33,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
     def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True, adaptive: bool = False,
+                 rec_dep: int = 1, r: int = 1,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
@@ -40,6 +41,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.device = 'cuda'
         self.miscls_as_nm = miscls_as_nm
         self.adaptive = adaptive
+        self.rec_dep = rec_dep
+        self.r = r
         self.batch_size = 100
         self.num_fit_iters = 20
         self.threshold_bins: list = []
@@ -67,7 +70,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             self_influences_member = np.load(self.self_influences_member_train_path)
         else:
             logger.info('Generating self influence scores for members (train)...')
-            self_influences_member = self.self_influence_func(x_member, y_member, self.estimator.model)
+            self_influences_member = self.self_influence_func(x_member, y_member, self.estimator.model, self.rec_dep, self.r)
             np.save(self.self_influences_member_train_path, self_influences_member)
 
         if os.path.exists(self.self_influences_non_member_train_path):
@@ -75,7 +78,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             self_influences_non_member = np.load(self.self_influences_non_member_train_path)
         else:
             logger.info('Generating self influence scores for non members (train)...')
-            self_influences_non_member = self.self_influence_func(x_non_member, y_non_member, self.estimator.model)
+            self_influences_non_member = self.self_influence_func(x_non_member, y_non_member, self.estimator.model, self.rec_dep, self.r)
             np.save(self.self_influences_non_member_train_path, self_influences_non_member)
 
         y_pred_member = self.estimator.predict(x_member, self.batch_size).argmax(axis=1)
@@ -153,7 +156,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             scores = np.load(infer_path)
         else:
             logger.info('Generating self influence scores to {} (infer)...'.format(infer_path))
-            scores = self.self_influence_func(x, y, self.estimator.model)
+            scores = self.self_influence_func(x, y, self.estimator.model, self.rec_dep, self.r)
             np.save(infer_path, scores)
 
         y_pred = self.estimator.predict(x, self.batch_size).argmax(axis=1)
@@ -167,6 +170,10 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         return predicted_class
 
     def _check_params(self) -> None:
+        if not (isinstance(self.rec_dep, int) and self.rec_dep >= 1):
+            raise ValueError("The argument `rec_dep` needs to be an int, and not lower than 1.")
+        if not (isinstance(self.r, int) and self.r >= 1):
+            raise ValueError("The argument `r` needs to be an int, and not lower than 1.")
         if self.influence_score_min is not None and not isinstance(self.influence_score_min, (int, float)):
             raise ValueError("The influence threshold `influence_score_min` needs to be a float.")
         if self.influence_score_max is not None and not isinstance(self.influence_score_max, (int, float)):
