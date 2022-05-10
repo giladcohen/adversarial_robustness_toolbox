@@ -6,7 +6,6 @@ import torch.nn as nn
 from torch.nn import Module
 
 import numpy as np
-from captum.influence import TracInCPFast
 
 from research.utils import load_state_dict
 

@@ -9,7 +9,6 @@ import numpy as np
 import os
 import time
 from tqdm import tqdm
-from captum.influence import TracInCPFast
 
 from research.utils import load_state_dict, save_to_path
 from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive
