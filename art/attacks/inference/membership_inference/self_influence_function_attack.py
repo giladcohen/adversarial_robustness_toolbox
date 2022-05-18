@@ -11,7 +11,7 @@ import time
 from tqdm import tqdm
 
 from research.utils import load_state_dict, save_to_path
-from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive
+from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive, calc_self_influence_average
 
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
@@ -32,7 +32,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
     def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True, adaptive: bool = False,
-                 rec_dep: int = 1, r: int = 1,
+                 average: bool = False, rec_dep: int = 1, r: int = 1,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
@@ -40,6 +40,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.device = 'cuda'
         self.miscls_as_nm = miscls_as_nm
         self.adaptive = adaptive
+        self.average = average
         self.rec_dep = rec_dep
         self.r = r
         self.batch_size = 100
@@ -54,6 +55,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
 
         if self.adaptive:
             self.self_influence_func = calc_self_influence_adaptive
+        elif self.average:
+            self.self_influence_func = calc_self_influence_average
         else:
             self.self_influence_func = calc_self_influence
 
@@ -179,3 +182,5 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             raise ValueError("The influence threshold `influence_score_max` needs to be a float.")
         if self.influence_score_max is not None and self.influence_score_min is not None and (self.influence_score_max <= self.influence_score_min):
             raise ValueError("This is mandatory: influence_score_min < influence_score_max")
+        if self.adaptive and self.average:
+            raise ValueError("Cannot set both adaptive=True and average=True")
