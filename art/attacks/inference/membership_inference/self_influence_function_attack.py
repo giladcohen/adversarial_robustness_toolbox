@@ -11,7 +11,8 @@ import time
 from tqdm import tqdm
 
 from research.utils import load_state_dict, save_to_path
-from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive, calc_self_influence_average
+from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive, \
+    calc_self_influence_average, calc_self_influence_adaptive_for_ref
 
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
@@ -32,7 +33,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
     def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True, adaptive: bool = False,
-                 average: bool = False, rec_dep: int = 1, r: int = 1,
+                 adaptive_for_ref: bool = False, average: bool = False, rec_dep: int = 1, r: int = 1,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
@@ -40,6 +41,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.device = 'cuda'
         self.miscls_as_nm = miscls_as_nm
         self.adaptive = adaptive
+        self.adaptive_for_ref = adaptive_for_ref
         self.average = average
         self.rec_dep = rec_dep
         self.r = r
@@ -55,10 +57,16 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
 
         if self.adaptive:
             self.self_influence_func = calc_self_influence_adaptive
+            logger.info('Setting self influence attack with adaptive attack')
+        elif self.adaptive_for_ref:
+            self.self_influence_func = calc_self_influence_adaptive_for_ref
+            logger.info('Setting self influence attack with adaptive attack suited for ref paper')
         elif self.average:
             self.self_influence_func = calc_self_influence_average
+            logger.info('Setting self influence attack with ensemble attack')
         else:
             self.self_influence_func = calc_self_influence
+            logger.info('Setting self influence attack with vanilla attack')
 
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
         if x_member.shape[0] != x_non_member.shape[0]:
@@ -182,5 +190,5 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             raise ValueError("The influence threshold `influence_score_max` needs to be a float.")
         if self.influence_score_max is not None and self.influence_score_min is not None and (self.influence_score_max <= self.influence_score_min):
             raise ValueError("This is mandatory: influence_score_min < influence_score_max")
-        if self.adaptive and self.average:
-            raise ValueError("Cannot set both adaptive=True and average=True")
+        if self.adaptive + self.average + self.adaptive_for_ref > 1:
+            raise ValueError("Can only set one of self.adaptive, self.adaptive_for_ref, self.average to True ")
