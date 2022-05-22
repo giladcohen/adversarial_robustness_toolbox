@@ -173,6 +173,9 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             scores = self.self_influence_func(x, y, self.estimator.model, self.rec_dep, self.r)
             np.save(infer_path, scores)
 
+        if self.adaptive_for_ref:
+            # Here we need to transform x_member and x_non_member
+            x = normalize(x, (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         y_pred = self.estimator.predict(x, self.batch_size).argmax(axis=1)
         predicted_class = np.ones(x.shape[0])  # member by default
         for i in range(x.shape[0]):
