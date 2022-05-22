@@ -4,13 +4,12 @@ import torch
 from torch.utils.data import TensorDataset
 import torch.nn as nn
 from torch.nn import Module
-
 import numpy as np
 import os
 import time
 from tqdm import tqdm
 
-from research.utils import load_state_dict, save_to_path
+from research.utils import load_state_dict, save_to_path, normalize
 from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive, \
     calc_self_influence_average, calc_self_influence_adaptive_for_ref
 
@@ -90,6 +89,11 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             logger.info('Generating self influence scores for non members (train)...')
             self_influences_non_member = self.self_influence_func(x_non_member, y_non_member, self.estimator.model, self.rec_dep, self.r)
             np.save(self.self_influences_non_member_train_path, self_influences_non_member)
+
+        if self.adaptive_for_ref:
+            # Here we need to transform x_member and x_non_member
+            x_member = normalize(x_member, (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            x_non_member = normalize(x_non_member, (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
 
         y_pred_member = self.estimator.predict(x_member, self.batch_size).argmax(axis=1)
         y_pred_non_member = self.estimator.predict(x_non_member, self.batch_size).argmax(axis=1)
