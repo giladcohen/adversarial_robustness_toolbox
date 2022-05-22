@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from research.utils import load_state_dict, save_to_path, normalize
 from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive, \
-    calc_self_influence_average, calc_self_influence_adaptive_for_ref
+    calc_self_influence_average, calc_self_influence_adaptive_for_ref, calc_self_influence_average_for_ref
 
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
@@ -22,7 +22,8 @@ if TYPE_CHECKING:
     from art.utils import CLASSIFIER_TYPE
 
 logger = logging.getLogger(__name__)
-
+RGB_MEAN = (0.4914, 0.4822, 0.4465)
+RGB_STD = (0.2023, 0.1994, 0.2010)
 
 class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     attack_params = MembershipInferenceAttack.attack_params + [
@@ -32,7 +33,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     _estimator_requirements = (BaseEstimator, ClassifierMixin)
 
     def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True, adaptive: bool = False,
-                 adaptive_for_ref: bool = False, average: bool = False, rec_dep: int = 1, r: int = 1,
+                 average: bool = False, for_ref: bool = False, rec_dep: int = 1, r: int = 1,
                  influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
@@ -40,8 +41,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.device = 'cuda'
         self.miscls_as_nm = miscls_as_nm
         self.adaptive = adaptive
-        self.adaptive_for_ref = adaptive_for_ref
         self.average = average
+        self.for_ref = for_ref
         self.rec_dep = rec_dep
         self.r = r
         self.batch_size = 100
@@ -55,14 +56,19 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self._check_params()
 
         if self.adaptive:
-            self.self_influence_func = calc_self_influence_adaptive
-            logger.info('Setting self influence attack with adaptive attack')
-        elif self.adaptive_for_ref:
-            self.self_influence_func = calc_self_influence_adaptive_for_ref
-            logger.info('Setting self influence attack with adaptive attack suited for ref paper')
+            if self.for_ref:
+                self.self_influence_func = calc_self_influence_adaptive_for_ref
+                logger.info('Setting self influence attack with adaptive attack suited for ref paper')
+            else:
+                self.self_influence_func = calc_self_influence_adaptive
+                logger.info('Setting self influence attack with adaptive attack')
         elif self.average:
-            self.self_influence_func = calc_self_influence_average
-            logger.info('Setting self influence attack with ensemble attack')
+            if self.for_ref:
+                self.self_influence_func = calc_self_influence_average_for_ref
+                logger.info('Setting self influence attack with ensemble attack suited for ref paper')
+            else:
+                self.self_influence_func = calc_self_influence_average
+                logger.info('Setting self influence attack with ensemble attack')
         else:
             self.self_influence_func = calc_self_influence
             logger.info('Setting self influence attack with vanilla attack')
@@ -90,10 +96,9 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             self_influences_non_member = self.self_influence_func(x_non_member, y_non_member, self.estimator.model, self.rec_dep, self.r)
             np.save(self.self_influences_non_member_train_path, self_influences_non_member)
 
-        if self.adaptive_for_ref:
-            # Here we need to transform x_member and x_non_member
-            x_member = normalize(x_member, (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            x_non_member = normalize(x_non_member, (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        if self.for_ref:
+            x_member = normalize(x_member, RGB_MEAN, RGB_STD)
+            x_non_member = normalize(x_non_member, RGB_MEAN, RGB_STD)
 
         y_pred_member = self.estimator.predict(x_member, self.batch_size).argmax(axis=1)
         y_pred_non_member = self.estimator.predict(x_non_member, self.batch_size).argmax(axis=1)
@@ -173,9 +178,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             scores = self.self_influence_func(x, y, self.estimator.model, self.rec_dep, self.r)
             np.save(infer_path, scores)
 
-        if self.adaptive_for_ref:
-            # Here we need to transform x_member and x_non_member
-            x = normalize(x, (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        if self.for_ref:
+            x = normalize(x, RGB_MEAN, RGB_STD)
         y_pred = self.estimator.predict(x, self.batch_size).argmax(axis=1)
         predicted_class = np.ones(x.shape[0])  # member by default
         for i in range(x.shape[0]):
@@ -197,5 +201,5 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
             raise ValueError("The influence threshold `influence_score_max` needs to be a float.")
         if self.influence_score_max is not None and self.influence_score_min is not None and (self.influence_score_max <= self.influence_score_min):
             raise ValueError("This is mandatory: influence_score_min < influence_score_max")
-        if self.adaptive + self.average + self.adaptive_for_ref > 1:
-            raise ValueError("Can only set one of self.adaptive, self.adaptive_for_ref, self.average to True ")
+        if self.adaptive + self.average > 1:
+            raise ValueError("Can only set one of self.adaptive, self.average to True ")
