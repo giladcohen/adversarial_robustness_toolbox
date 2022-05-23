@@ -9,9 +9,11 @@ import os
 import time
 from tqdm import tqdm
 
+from research.consts import RGB_MEAN, RGB_STD
 from research.utils import load_state_dict, save_to_path, normalize
 from pytorch_influence_functions import calc_self_influence, calc_self_influence_adaptive, \
-    calc_self_influence_average, calc_self_influence_adaptive_for_ref, calc_self_influence_average_for_ref
+    calc_self_influence_average, calc_self_influence_adaptive_for_ref, calc_self_influence_average_for_ref, \
+    calc_self_influence_for_ref
 
 from art.attacks.attack import MembershipInferenceAttack
 from art.estimators.estimator import BaseEstimator
@@ -22,8 +24,6 @@ if TYPE_CHECKING:
     from art.utils import CLASSIFIER_TYPE
 
 logger = logging.getLogger(__name__)
-RGB_MEAN = (0.4914, 0.4822, 0.4465)
-RGB_STD = (0.2023, 0.1994, 0.2010)
 
 class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
     attack_params = MembershipInferenceAttack.attack_params + [
@@ -70,8 +70,12 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
                 self.self_influence_func = calc_self_influence_average
                 logger.info('Setting self influence attack with ensemble attack')
         else:
-            self.self_influence_func = calc_self_influence
-            logger.info('Setting self influence attack with vanilla attack')
+            if self.for_ref:
+                self.self_influence_func = calc_self_influence_for_ref
+                logger.info('Setting self influence attack with vanilla attack for ref paper')
+            else:
+                self.self_influence_func = calc_self_influence
+                logger.info('Setting self influence attack with vanilla attack')
 
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
         if x_member.shape[0] != x_non_member.shape[0]:
