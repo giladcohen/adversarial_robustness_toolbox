@@ -78,10 +78,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
                 logger.info('Setting self influence attack with vanilla attack')
 
     def fit(self, x_member: np.ndarray, y_member: np.ndarray, x_non_member: np.ndarray, y_non_member: np.ndarray):
-        if x_member.shape[0] != x_non_member.shape[0]:
-            raise ValueError("Number of members and non members do not match")
-        if y_member.shape[0] != y_non_member.shape[0]:
-            raise ValueError("Number of members' labels and non members' labels do not match")
+        assert x_member.shape[0] == y_member.shape[0], 'Number of rows in x and y do not match for members'
+        assert x_non_member.shape[0] == y_non_member.shape[0], 'Number of rows in x and y do not match for non-members'
 
         start = time.time()
         if os.path.exists(self.self_influences_member_train_path):
@@ -206,4 +204,4 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         if self.influence_score_max is not None and self.influence_score_min is not None and (self.influence_score_max <= self.influence_score_min):
             raise ValueError("This is mandatory: influence_score_min < influence_score_max")
         if self.adaptive + self.average > 1:
-            raise ValueError("Can only set one of self.adaptive, self.average to True ")
+            raise ValueError("Can only set one of self.adaptive, self.average to True.")
