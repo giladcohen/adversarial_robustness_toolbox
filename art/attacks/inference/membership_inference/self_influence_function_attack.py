@@ -82,6 +82,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         assert x_non_member.shape[0] == y_non_member.shape[0], 'Number of rows in x and y do not match for non-members'
 
         start = time.time()
+        assert os.path.exists(self.self_influences_member_train_path)  # debug for only inference results
+        assert os.path.exists(self.self_influences_non_member_train_path)  # debug for only inference results
         if os.path.exists(self.self_influences_member_train_path):
             logger.info('Loading self influence scores for members (train)...')
             self_influences_member = np.load(self.self_influences_member_train_path)
@@ -163,6 +165,11 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
                 "or run method `fit` on known training set."
             )
 
+        if "probabilities" in kwargs.keys():
+            probabilities = kwargs.get("probabilities")
+        else:
+            probabilities = False
+
         infer_set = kwargs.get('infer_set', None)
         assert infer_set is not None, "infer() must be called with kwargs with 'infer_set'"
         if infer_set == 'member_test':
@@ -183,14 +190,31 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         if self.for_ref:
             x = normalize(x, RGB_MEAN, RGB_STD)
         y_pred = self.estimator.predict(x, self.batch_size).argmax(axis=1)
-        predicted_class = np.ones(x.shape[0])  # member by default
-        for i in range(x.shape[0]):
-            if scores[i] < self.influence_score_min or scores[i] > self.influence_score_max:
-                predicted_class[i] = 0
-            if y_pred[i] != y[i] and self.miscls_as_nm:
-                predicted_class[i] = 0
 
-        return predicted_class
+        if not probabilities:
+            predicted_class = np.ones(x.shape[0])  # member by default
+            for i in range(x.shape[0]):
+                if scores[i] < self.influence_score_min or scores[i] > self.influence_score_max:
+                    predicted_class[i] = 0
+                if y_pred[i] != y[i] and self.miscls_as_nm:
+                    predicted_class[i] = 0
+
+            return predicted_class
+        else:
+            assert self.influence_score_min is not None and self.influence_score_max is not None
+            prob_1 = np.nan * np.ones_like(scores)
+            for i in range(x.shape[0]):
+                look_left = np.abs(scores[i] - self.influence_score_min) < np.abs(scores[i] - self.influence_score_max)
+                if look_left:
+                    dist = scores[i] - self.influence_score_min
+                else:
+                    dist = self.influence_score_max - scores[i]
+                prob_1[i] = 1 / (1 + np.exp(-dist))
+                if y_pred[i] != y[i] and self.miscls_as_nm:
+                    prob_1[i] = 0.0
+            # prob_0 = np.ones_like(prob_1) - prob_1
+            # probs = np.stack((prob_0, prob_1), axis=1)
+            return prob_1
 
     def _check_params(self) -> None:
         if not (isinstance(self.rec_dep, int) and self.rec_dep >= 1):

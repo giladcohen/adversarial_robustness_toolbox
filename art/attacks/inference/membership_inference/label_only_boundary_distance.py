@@ -131,8 +131,9 @@ class LabelOnlyDecisionBoundary(MembershipInferenceAttack):
                 # use sigmoid on distance from threshold
                 dist_threshold = distance - self.distance_threshold_tau
                 prob_1 = 1 / (1 + np.exp(-dist_threshold))
-            prob_0 = np.ones_like(prob_1) - prob_1
-            return np.stack((prob_0, prob_1), axis=1)
+            # prob_0 = np.ones_like(prob_1) - prob_1
+            # return np.stack((prob_0, prob_1), axis=1)
+            return prob_1
         return predicted_class
 
     def calibrate_distance_threshold(

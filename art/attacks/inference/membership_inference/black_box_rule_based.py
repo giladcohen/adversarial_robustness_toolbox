@@ -95,6 +95,9 @@ class MembershipInferenceBlackBoxRuleBased(MembershipInferenceAttack):
                 prob[:, np.ones_like(predicted_class) - predicted_class] = np.ones_like(pred_prob) - pred_prob
             else:
                 # simply returns probability 1 for the predicted class and 0 for the other class
-                prob = check_and_transform_label_format(predicted_class, return_one_hot=True)
+                # prob = check_and_transform_label_format(predicted_class, return_one_hot=True)
+                prob = np.zeros(len(y_pred))
+                for i in range(len(y_pred)):
+                    prob[i] = y_pred[i, np.argmax(y[i])]
             return prob
         return predicted_class
