@@ -8,6 +8,7 @@ import numpy as np
 import os
 import time
 from tqdm import tqdm
+from sklearn.metrics import roc_curve
 
 from research.consts import RGB_MEAN, RGB_STD
 from research.utils import load_state_dict, save_to_path, normalize
@@ -34,7 +35,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
 
     def __init__(self, estimator: "CLASSIFIER_TYPE", debug_dir: str, miscls_as_nm: bool = True, adaptive: bool = False,
                  average: bool = False, for_ref: bool = False, rec_dep: int = 1, r: int = 1,
-                 influence_score_min: Optional[float] = None, influence_score_max: Optional[float] = None):
+                 optimize_tpr_fpr: bool = False, influence_score_min: Optional[float] = None,
+                 influence_score_max: Optional[float] = None):
         super().__init__(estimator=estimator)
         self.influence_score_min = influence_score_min
         self.influence_score_max = influence_score_max
@@ -45,6 +47,7 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         self.for_ref = for_ref
         self.rec_dep = rec_dep
         self.r = r
+        self.optimize_tpr_fpr = optimize_tpr_fpr
         self.batch_size = 100
         self.num_fit_iters = 20
         self.threshold_bins: list = []
@@ -119,33 +122,69 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         minn_arr = np.linspace(minn - delta * 0.5, minn + delta * 0.5, 1000)
         maxx_arr = np.linspace(maxx - delta * 0.5, maxx + delta * 0.5, 1000)
 
-        acc_max = 0.0
+        score_max = 0.0
         best_min = -np.inf
         best_max = np.inf
-        self.threshold_bins = []
-        for i in tqdm(range(len(minn_arr))):
-            for j in range(len(maxx_arr)):
-                if self.miscls_as_nm:
-                    inferred_member = np.int_(
-                        np.logical_and.reduce([self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j], pred_member_match])
-                    )
-                    inferred_non_member = np.int_(
-                        np.logical_and.reduce([self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j], pred_non_member_match])
-                    )
-                else:
-                    inferred_member = np.int_(
-                        np.logical_and.reduce([self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j]])
-                    )
-                    inferred_non_member = np.int_(
-                        np.logical_and.reduce([self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j]])
-                    )
-                member_acc = np.mean(inferred_member == 1)
-                non_member_acc = np.mean(inferred_non_member == 0)
-                acc = (member_acc * len(inferred_member) + non_member_acc * len(inferred_non_member)) / (len(inferred_member) + len(inferred_non_member))
-                self.threshold_bins.append((minn_arr[i], maxx_arr[j], acc))
-                if acc > acc_max:
-                    best_min, best_max = minn_arr[i], maxx_arr[j]
-                    acc_max = acc
+        if self.optimize_tpr_fpr:
+            scores = np.concatenate((self_influences_non_member, self_influences_member))
+            y_pred = np.concatenate((y_pred_non_member, y_pred_member))
+            y = np.concatenate((y_non_member, y_member))
+            y_is_member = np.concatenate((np.zeros(len(self_influences_non_member)), np.ones(len(self_influences_member))))
+            found = False
+            for i in tqdm(range(len(minn_arr))):
+                for j in range(len(maxx_arr)):
+                    tau1 = minn_arr[i]
+                    tau2 = maxx_arr[j]
+                    prob_1 = np.nan * np.ones_like(scores)
+                    for k in range(scores.shape[0]):
+                        look_left = np.abs(scores[k] - tau1) < np.abs(scores[k] - tau2)
+                        if look_left:
+                            dist = scores[k] - tau1
+                        else:
+                            dist = tau2 - scores[k]
+                        prob_1[k] = 1 / (1 + np.exp(-dist))
+                        if y_pred[k] != y[k] and self.miscls_as_nm:
+                            prob_1[k] = 0.0
+
+                    # calculate ROC curve
+                    fpr, tpr, thresholds = roc_curve(y_is_member, prob_1)
+                    # verify that fpr has at least one element between 0.0005 and 0.002:
+                    valid_indices = np.where(np.logical_and(fpr >= 0.0005, fpr <= 0.002))[0]
+                    if len(valid_indices) == 0:
+                        # cannot find fpr close enough for 0.001
+                        continue
+                    else:
+                        tpr_at_fpr_0p001 = tpr[np.argmin(np.abs(fpr - 0.001))]
+                    if tpr_at_fpr_0p001 > score_max:
+                        best_min, best_max = tau1, tau2
+                        score_max = tpr_at_fpr_0p001
+                        found = True
+            assert found, 'Did not find FPR close to 0.001'
+        else:
+            self.threshold_bins = []
+            for i in tqdm(range(len(minn_arr))):
+                for j in range(len(maxx_arr)):
+                    if self.miscls_as_nm:
+                        inferred_member = np.int_(
+                            np.logical_and.reduce([self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j], pred_member_match])
+                        )
+                        inferred_non_member = np.int_(
+                            np.logical_and.reduce([self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j], pred_non_member_match])
+                        )
+                    else:
+                        inferred_member = np.int_(
+                            np.logical_and.reduce([self_influences_member > minn_arr[i], self_influences_member < maxx_arr[j]])
+                        )
+                        inferred_non_member = np.int_(
+                            np.logical_and.reduce([self_influences_non_member > minn_arr[i], self_influences_non_member < maxx_arr[j]])
+                        )
+                    member_acc = np.mean(inferred_member == 1)
+                    non_member_acc = np.mean(inferred_non_member == 0)
+                    acc = (member_acc * len(inferred_member) + non_member_acc * len(inferred_non_member)) / (len(inferred_member) + len(inferred_non_member))
+                    self.threshold_bins.append((minn_arr[i], maxx_arr[j], acc))
+                    if acc > score_max:
+                        best_min, best_max = minn_arr[i], maxx_arr[j]
+                        score_max = acc
 
         self.influence_score_min = best_min
         self.influence_score_max = best_max
