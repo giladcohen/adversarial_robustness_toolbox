@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import TensorDataset
 import torch.nn as nn
 from torch.nn import Module
+import warnings
 import numpy as np
 import os
 import time
@@ -23,6 +24,10 @@ from art.utils import check_and_transform_label_format
 
 if TYPE_CHECKING:
     from art.utils import CLASSIFIER_TYPE
+
+
+#suppress warnings
+warnings.filterwarnings('ignore')
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +124,8 @@ class SelfInfluenceFunctionAttack(MembershipInferenceAttack):
         maxx = self_influences_member.max()
         delta = maxx - minn
         # setting array of min/max thresholds
-        minn_arr = np.linspace(minn - delta * 0.5, minn + delta * 0.5, 1000)
-        maxx_arr = np.linspace(maxx - delta * 0.5, maxx + delta * 0.5, 1000)
+        minn_arr = np.linspace(minn - delta * 0.5, minn + delta * 0.5, 100)
+        maxx_arr = np.linspace(maxx - delta * 0.5, maxx + delta * 0.5, 100)
 
         score_max = 0.0
         best_min = -np.inf
